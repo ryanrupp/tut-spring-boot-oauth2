@@ -21,8 +21,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.OAuth2ClientContext;
 import org.springframework.security.oauth2.client.filter.OAuth2ClientAuthenticationProcessingFilter;
 import org.springframework.security.oauth2.client.filter.OAuth2ClientContextFilter;
@@ -30,18 +33,27 @@ import org.springframework.security.oauth2.config.annotation.web.configuration.E
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.Filter;
 import java.security.Principal;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 @SpringBootApplication
 @RestController
 @EnableOAuth2Client
 public class DynamicOAuthApplication extends WebSecurityConfigurerAdapter {
+
+    /**
+     * Toggle to make it so there's multiple identity providers. In the case of multiple identity providers
+     * the user must provider their username so we can redirect them to the correct identity provider.
+     * In the case of a single identity provider we can automatically redirect to it.
+     */
+    public static boolean MULTIPLE_IDENTITY_PROVIDERS = false;
 
     @Autowired
     OAuth2ClientContext oauth2ClientContext;
@@ -51,13 +63,26 @@ public class DynamicOAuthApplication extends WebSecurityConfigurerAdapter {
         return principal;
     }
 
+
+    @RequestMapping("/username")
+    public String username() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth.getName();
+    }
+
+    @GetMapping("/views/login")
+    public String redirectViewToIndex() {
+        return "Put a login page here to get the username. Either there are multiple identity providers or they're using LDAP/internal authentication. " +
+               "Once the username is provided we can map this to a user and send them through the correct authentication flow.";
+    }
+
     @Override
     protected void configure(HttpSecurity http) throws Exception {
         // @formatter:off
-        http.antMatcher("/**").authorizeRequests().antMatchers("/", "/login**", "/webjars/**").permitAll().anyRequest()
+        http.antMatcher("/**").authorizeRequests().antMatchers("/views/login").permitAll().anyRequest()
                 .authenticated().and().exceptionHandling()
-                .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/")).and().logout()
-                .logoutSuccessUrl("/").permitAll().and().csrf()
+                .authenticationEntryPoint(new DelegatingAuthenticationEntryPoint(identityProviderService()))
+                .and().csrf()
                 .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()).and()
                 .addFilterBefore(ssoFilter(), BasicAuthenticationFilter.class);
         // @formatter:on
@@ -99,7 +124,9 @@ public class DynamicOAuthApplication extends WebSecurityConfigurerAdapter {
         // To follow up an implementation of IdentityProviderService would be made that reads from a database
         Set<IdentityProviderConfig> configs = new HashSet<>();
         configs.add(new IdentityProviderConfig(1, facebook().getClient(), facebook().getResource()));
-        configs.add(new IdentityProviderConfig(2, github().getClient(), github().getResource()));
+        if (MULTIPLE_IDENTITY_PROVIDERS) {
+            configs.add(new IdentityProviderConfig(2, github().getClient(), github().getResource()));
+        }
 
         return new InMemoryIdentityProviderService(configs);
     }

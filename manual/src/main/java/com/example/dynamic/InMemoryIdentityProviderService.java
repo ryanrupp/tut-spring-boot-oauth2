@@ -1,5 +1,6 @@
 package com.example.dynamic;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,5 +24,10 @@ class InMemoryIdentityProviderService implements IdentityProviderService {
     @Override
     public Optional<IdentityProviderConfig> readConfig(int id) {
         return Optional.ofNullable(identityConfigs.get(id));
+    }
+
+    @Override
+    public Set<IdentityProviderConfig> list() {
+        return new HashSet<>(identityConfigs.values());
     }
 }
